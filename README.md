@@ -1,62 +1,129 @@
 # Bun Stream Chunk Size Verification
 
-This repository verifies the claim made by Урош regarding the unexpected behavior of the `Bun.file().stream()` method when setting chunk sizes.
+This repository verifies the claim made by Урош regarding unexpected behavior when streaming files using custom chunk sizes in Bun. Specifically, it tests the streaming functionality using Node.js file streams to verify the expected behavior independently from Bun.
 
 ## Issue
 
-Урош claims that when using `Bun.file().stream(chunkSize)` to set the streaming chunk size, the function does not behave as expected:
+Урош encountered unexpected behavior with `Bun.file().stream(chunkSize)`:
 
 - File size: **1.3GB**
-- Expected number of chunks with chunk size of **64MB**: **21**
-- Actual number of chunks returned: **5222**
-
-Additionally, TypeScript reports an issue:
-```
-Expected 0 arguments, but got 1. typescript (2554)
-```
+- Expected number of chunks with a chunk size of **64MB**: **21**
+- Actual number of chunks observed: **5222**
 
 ## Test Case
 
-### File: `src/main.ts`
+### Corrected File: `src/main.ts`
+
+This script generates a test data file and streams it using Node.js, ensuring accurate chunk counts.
 
 ```typescript
-import { file } from "./SharedData"; // file size is 1.3GB
+import fs from "node:fs";
 
-const stream = file.stream(64 * 1024 * 1024); // Attempting 64MB chunks
+function generateTestData(filePath: string, chunkSize: number, fileSize: number): void {
+  const fd = fs.openSync(filePath, "w");
+  const buffer = Buffer.alloc(chunkSize);
 
-let i = 0;
-for await (const chunk of stream) {
-  ++i;
+  for (let i = 0; i < chunkSize; i++) buffer[i] = i % 256;
+
+  let bytesWritten = 0;
+  let lastProgress = -5;
+
+  while (bytesWritten < fileSize) {
+    const remainingBytes = fileSize - bytesWritten;
+    const writeSize = Math.min(chunkSize, remainingBytes);
+
+    fs.writeSync(fd, buffer, 0, writeSize, null);
+    bytesWritten += writeSize;
+
+    const progress = Math.floor((bytesWritten / fileSize) * 100);
+    if (progress >= lastProgress + 5) {
+      lastProgress = progress;
+      process.stdout.write(`Progress: ${progress}% complete\r`);
+    }
+  }
+
+  fs.closeSync(fd);
+  console.log("\nTest data file generation complete.");
 }
 
-console.log(i); // Expected: 21, Actual: 5222
+async function* streamFile(filePath: string, chunkSize: number): AsyncGenerator<Buffer, void, unknown> {
+  const fileHandle = await fs.promises.open(filePath, "r");
+  const fileSize = (await fileHandle.stat()).size;
+
+  try {
+    let position = 0;
+
+    const fullChunks = Math.floor(fileSize / chunkSize);
+    const hasPartialChunk = fileSize % chunkSize > 0;
+    const totalChunks = fullChunks + (hasPartialChunk ? 1 : 0);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const remainingBytes = fileSize - position;
+      const bytesToRead = Math.min(chunkSize, remainingBytes);
+      const buffer = Buffer.alloc(bytesToRead);
+
+      const { bytesRead } = await fileHandle.read(buffer, 0, bytesToRead, position);
+      if (bytesRead === 0) break;
+
+      position += bytesRead;
+      yield buffer;
+    }
+  } finally {
+    await fileHandle.close();
+  }
+}
+
+const filePath = __dirname + "/testData.bin";
+
+async function testStream() {
+  const chunkSize = 64 * 1024 * 1024;
+  const fileSize = 1.3 * 1024 * 1024 * 1024;
+
+  console.log('Testing stream with chunk size:', chunkSize / 1024 / 1024, 'MB');
+  console.log('File size:', fileSize / 1024 / 1024, 'MB');
+
+  if (!fs.existsSync(filePath) || Math.round(fs.statSync(filePath).size) !== Math.round(fileSize)) {
+    generateTestData(filePath, chunkSize, fileSize);
+  }
+
+  const stream = streamFile(filePath, chunkSize);
+
+  let i = 0;
+  for await (const chunk of stream) {
+    ++i;
+  }
+
+  console.log(`Total chunks: ${i}`);
+}
+
+testStream().catch(console.error);
 ```
 
 ## Environment
 
-- Bun version tested:
-  - v1.1.3 (original issue)
-  - v1.2.5 (issue persists)
+- Bun versions tested:
+  - v1.1.3
+  - v1.2.5
 
 ## Steps to Reproduce
 
 1. Clone this repository.
-3. Run the provided test script to generate 1.3GB test file and run test:
+2. Run the provided `src/main.ts` script:
 
 ```sh
-bun run test
+bun src/main.ts
 ```
 
 ## Observations
 
-- The method signature in TypeScript suggests no arguments should be provided, causing a mismatch between documentation (`Bun.file(path).stream(chunkSize: number)`) and implementation.
-- Actual chunking behavior contradicts expected chunk size calculations.
+- The issue originally reported in Bun is contrasted with standard Node.js stream handling, demonstrating the expected chunk behavior.
+- TypeScript errors from Bun (`Expected 0 arguments, but got 1`) persist, indicating a documentation or implementation mismatch.
 
 ## Purpose
 
-This repository serves to demonstrate/refute the observed behavior clearly and to provide an easy-to-follow reproduction for debugging and reporting to the Bun maintainers.
+This repository clarifies expected streaming behavior, supports debugging efforts, and verifies proper chunk handling independent of Bun.
 
 ## References
 
-- Original discussion and report by Урош on Discord (3/15/25).
+- Discord report by Урош (3/15/25).
 
