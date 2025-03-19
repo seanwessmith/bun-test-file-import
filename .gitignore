@@ -1,4 +1,4 @@
-src/SharedData
+src/testData.bin
 
 # dependencies (bun install)
 node_modules

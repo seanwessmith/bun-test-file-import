@@ -41,11 +41,7 @@ console.log(i); // Expected: 21, Actual: 5222
 ## Steps to Reproduce
 
 1. Clone this repository.
-2. Run the provided command to generate 1.3GB test file
-```sh
-bun run generate-test-data
-```
-3. Run the provided test script:
+3. Run the provided test script to generate 1.3GB test file and run test:
 
 ```sh
 bun run test

@@ -2,7 +2,6 @@
   "name": "test",
   "private": true,
   "scripts": {
-    "generate-test-data": "bun run src/generateTestData.ts",
     "test": "bun run src/main.ts"
   },
   "devDependencies": {
